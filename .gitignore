@@ -1,0 +1,10 @@
+/target/
+Cargo.lock
+*.rs.bk
+.env
+.idea/
+.DS_Store
+*.log
+*.swp
+*.swo
+*~

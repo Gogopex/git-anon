@@ -1,14 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use colored::Colorize;
 use dialoguer::Confirm;
-use std::path::Path;
 
 use crate::git::GitOps;
-use crate::{AnonymousIdentity, GitAnon};
+use crate::GitAnon;
 
 impl GitAnon {
-    pub fn squash(&self, message: Option<String>, no_confirm: bool) -> Result<()> {
+    pub fn squash(&self, message: Option<String>, no_confirm: bool, dry_run: bool) -> Result<()> {
         let git = GitOps::open(&self.repo_path)?;
         let branch = git.current_branch()?;
 
@@ -17,6 +16,21 @@ impl GitAnon {
         }
 
         let message = message.unwrap_or_else(|| "Initial commit".to_string());
+
+        if dry_run {
+            println!("{}", "[DRY RUN] Squash operation preview:".blue().bold());
+            println!("  Current branch: {}", branch.yellow());
+            println!("  New commit message: {}", message.cyan());
+            println!(
+                "  Anonymous identity: {} <{}>",
+                self.identity.name, self.identity.email
+            );
+            let backup_branch = format!("backup-{}-{}", branch, Utc::now().timestamp());
+            println!("  Backup branch name: {}", backup_branch.green());
+            println!("  {} All commits would be squashed into a single anonymous commit", "→".blue());
+            println!("  {} A backup branch would be created", "→".blue());
+            return Ok(());
+        }
 
         if !no_confirm {
             println!(
@@ -56,7 +70,7 @@ impl GitAnon {
         Ok(())
     }
 
-    pub fn push(&self, remote: &str, branch: Option<String>, force: bool) -> Result<()> {
+    pub fn push(&self, remote: &str, branch: Option<String>, force: bool, dry_run: bool) -> Result<()> {
         let git = GitOps::open(&self.repo_path)?;
         let current_branch = git.current_branch()?;
         let branch = branch.unwrap_or(current_branch);
@@ -70,12 +84,28 @@ impl GitAnon {
         let remote_oid = git.get_remote_tracking_branch(remote, &branch)?;
         let since_commit = remote_oid.map(|oid| oid.to_string());
 
-        let count = git.anonymize_commits(&self.identity, &branch, since_commit.as_deref())?;
+        let count = git.count_commits_to_anonymize(since_commit.as_deref())?;
 
         if count == 0 {
             println!("Already up to date with {}/{}", remote, branch);
             return Ok(());
         }
+
+        if dry_run {
+            println!("{}", "[DRY RUN] Push operation preview:".blue().bold());
+            println!("  Target remote: {}", remote.yellow());
+            println!("  Target branch: {}", branch.yellow());
+            println!("  Force push: {}", if force { "yes".red() } else { "no".green() });
+            println!(
+                "  Anonymous identity: {} <{}>",
+                self.identity.name, self.identity.email
+            );
+            println!("  {} {} commits would be anonymized", "→".blue(), count);
+            println!("  {} Commits would be pushed to {}/{}", "→".blue(), remote, branch);
+            return Ok(());
+        }
+
+        let anonymized_count = git.anonymize_commits(&self.identity, &branch, since_commit.as_deref())?;
 
         println!("Pushing to {}...", remote);
         git.push_to_remote(remote, &branch, force)?;
@@ -83,15 +113,35 @@ impl GitAnon {
         println!(
             "{} Successfully pushed {} anonymized commits to {}",
             "✓".green(),
-            count,
+            anonymized_count,
             remote
         );
 
         Ok(())
     }
 
-    pub fn clean(&self, no_confirm: bool) -> Result<()> {
+    pub fn clean(&self, no_confirm: bool, dry_run: bool) -> Result<()> {
         let git = GitOps::open(&self.repo_path)?;
+
+        if dry_run {
+            println!("{}", "[DRY RUN] Clean operation preview:".blue().bold());
+            let branch = git.current_branch()?;
+            let backup_branch = format!("pre-clean-backup-{}", Utc::now().timestamp());
+            println!("  Current branch: {}", branch.yellow());
+            println!("  Backup branch name: {}", backup_branch.green());
+            println!(
+                "  Anonymous identity: {} <{}>",
+                self.identity.name, self.identity.email
+            );
+            println!("  {} All commits would be squashed into one", "→".blue());
+            println!("  {} All git history would be removed", "→".blue());
+            println!("  {} Git submodules would be removed", "→".blue());
+            println!("  {} Git reflog would be cleaned", "→".blue());
+            println!("  {} Aggressive garbage collection would be performed", "→".blue());
+            println!("  {} A backup branch would be created", "→".blue());
+            println!("  {}", "WARNING: This would be IRREVERSIBLE!".red().bold());
+            return Ok(());
+        }
 
         if !no_confirm {
             println!(

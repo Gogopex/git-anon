@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
-use git2::{BranchType, Commit, ObjectType, Oid, Reference, Repository, Signature, Time};
+use anyhow::Result;
+use git2::{BranchType, Commit, Oid, Repository, Signature, Status, StatusOptions};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
 
@@ -22,8 +22,21 @@ impl GitOps {
     }
 
     pub fn has_uncommitted_changes(&self) -> Result<bool> {
-        let statuses = self.repo.statuses(None)?;
-        Ok(statuses.len() > 0)
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(false);
+        opts.include_ignored(false);
+        
+        let statuses = self.repo.statuses(Some(&mut opts))?;
+        for status in statuses.iter() {
+            let flags = status.status();
+            if flags.intersects(Status::INDEX_MODIFIED | Status::INDEX_NEW | Status::INDEX_DELETED | 
+                               Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
+                               Status::WT_MODIFIED | Status::WT_DELETED | Status::WT_RENAMED | 
+                               Status::WT_TYPECHANGE) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub fn create_backup_branch(&self, branch_name: &str) -> Result<()> {
@@ -48,7 +61,7 @@ impl GitOps {
             anyhow::bail!("No commits found in repository");
         }
 
-        let first_commit = self.repo.find_commit(commits[0])?;
+        let _first_commit = self.repo.find_commit(commits[0])?;
         let tree = self
             .repo
             .find_commit(self.repo.head()?.target().unwrap())?
@@ -167,5 +180,18 @@ impl GitOps {
             Ok(reference) => Ok(reference.target()),
             Err(_) => Ok(None),
         }
+    }
+
+    pub fn count_commits_to_anonymize(&self, since_commit: Option<&str>) -> Result<u32> {
+        let mut revwalk = self.repo.revwalk()?;
+        revwalk.push_head()?;
+
+        if let Some(since) = since_commit {
+            let oid = self.repo.revparse_single(since)?.id();
+            revwalk.hide(oid)?;
+        }
+
+        let commits: Vec<Oid> = revwalk.collect::<Result<Vec<_>, _>>()?;
+        Ok(commits.len() as u32)
     }
 }

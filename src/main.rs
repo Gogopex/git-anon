@@ -26,6 +26,9 @@ struct Cli {
 
     #[arg(short, long, help = "Verbose output")]
     verbose: bool,
+
+    #[arg(short, long, help = "Show what would be done without making changes")]
+    dry_run: bool,
 }
 
 #[derive(Subcommand)]
@@ -100,13 +103,13 @@ fn main() -> Result<()> {
             let git_anon = GitAnon::new(repo_path, identity)?;
 
             match cli.command {
-                Commands::Squash { message } => git_anon.squash(message, cli.yes),
+                Commands::Squash { message } => git_anon.squash(message, cli.yes, cli.dry_run),
                 Commands::Push {
                     remote,
                     branch,
                     force,
-                } => git_anon.push(&remote, branch, force),
-                Commands::Clean => git_anon.clean(cli.yes),
+                } => git_anon.push(&remote, branch, force, cli.dry_run),
+                Commands::Clean => git_anon.clean(cli.yes, cli.dry_run),
                 Commands::Config { .. } => unreachable!(),
             }
         }

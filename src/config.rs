@@ -9,12 +9,12 @@ use crate::AnonymousIdentity;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
-    pub default_identity: Identity,
+    pub anonymous_identity: Identity,
     #[serde(default)]
     pub remotes: HashMap<String, RemoteConfig>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Identity {
     pub name: String,
     pub email: String,
@@ -29,8 +29,8 @@ pub struct RemoteConfig {
 impl Default for Identity {
     fn default() -> Self {
         Self {
-            name: "ludwigabap".to_string(),
-            email: "ludwigabap@pm.me".to_string(),
+            name: "Anonymous".to_string(),
+            email: "anonymous@example.com".to_string(),
         }
     }
 }
@@ -42,12 +42,12 @@ impl Default for Config {
             "radicle".to_string(),
             RemoteConfig {
                 name: "rad".to_string(),
-                identity: "default_identity".to_string(),
+                identity: "anonymous_identity".to_string(),
             },
         );
 
         Self {
-            default_identity: Identity::default(),
+            anonymous_identity: Identity::default(),
             remotes,
         }
     }
@@ -88,14 +88,10 @@ impl Config {
     }
 
     pub fn get_identity(&self, name: &str) -> Option<AnonymousIdentity> {
-        if name == "default_identity" {
-            Some(AnonymousIdentity {
-                name: self.default_identity.name.clone(),
-                email: self.default_identity.email.clone(),
-            })
-        } else {
-            None
-        }
+        (name == "anonymous_identity").then(|| AnonymousIdentity {
+            name: self.anonymous_identity.name.clone(),
+            email: self.anonymous_identity.email.clone(),
+        })
     }
 
     pub fn get_remote_identity(&self, remote: &str) -> AnonymousIdentity {
@@ -103,8 +99,8 @@ impl Config {
             .get(remote)
             .and_then(|rc| self.get_identity(&rc.identity))
             .unwrap_or_else(|| AnonymousIdentity {
-                name: self.default_identity.name.clone(),
-                email: self.default_identity.email.clone(),
+                name: self.anonymous_identity.name.clone(),
+                email: self.anonymous_identity.email.clone(),
             })
     }
 }

@@ -39,13 +39,13 @@ git-anon config set-identity "yourhandle" "youremail"
 Configuration is stored in `~/.config/git-anon/config.toml`:
 
 ```toml
-[default_identity]
+[anonymous_identity]
 name = "youremail"
 email = "youremail"
 
 [remotes.radicle]
 name = "rad"
-identity = "default_identity"
+identity = "anonymous_identity"
 ```
 
 ### Options

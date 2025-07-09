@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use dialoguer::{Confirm, Input};
 use std::env;
 use std::path::PathBuf;
 
@@ -66,13 +67,13 @@ enum ConfigAction {
     #[command(about = "Show current configuration")]
     Show,
 
-    #[command(about = "Set default identity")]
+    #[command(about = "Set anonymous identity")]
     SetIdentity {
         #[arg(help = "Name for anonymous identity")]
-        name: String,
+        name: Option<String>,
 
         #[arg(help = "Email for anonymous identity")]
-        email: String,
+        email: Option<String>,
     },
 
     #[command(about = "Add or update remote configuration")]
@@ -91,9 +92,7 @@ enum ConfigAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let repo_path = cli
-        .repo
-        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
+    let repo_path = cli.repo.unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
 
     match cli.command {
         Commands::Config { action } => handle_config(action),
@@ -120,8 +119,8 @@ fn get_identity_for_command(config: &Config, command: &Commands) -> Result<Anony
     match command {
         Commands::Push { remote, .. } => Ok(config.get_remote_identity(remote)),
         _ => Ok(AnonymousIdentity {
-            name: config.default_identity.name.clone(),
-            email: config.default_identity.email.clone(),
+            name: config.anonymous_identity.name.clone(),
+            email: config.anonymous_identity.email.clone(),
         }),
     }
 }
@@ -137,9 +136,9 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 config_path.display().to_string().cyan()
             );
             println!();
-            println!("Default identity:");
-            println!("  Name:  {}", config.default_identity.name.green());
-            println!("  Email: {}", config.default_identity.email.green());
+            println!("Anonymous identity:");
+            println!("  Name:  {}", config.anonymous_identity.name.green());
+            println!("  Email: {}", config.anonymous_identity.email.green());
             println!();
 
             if !config.remotes.is_empty() {
@@ -157,11 +156,39 @@ fn handle_config(action: ConfigAction) -> Result<()> {
 
         ConfigAction::SetIdentity { name, email } => {
             let mut config = Config::load()?;
-            config.default_identity.name = name;
-            config.default_identity.email = email;
+
+            let is_interactive = name.is_none() || email.is_none();
+
+            let name = name.unwrap_or_else(|| {
+                Input::new()
+                    .with_prompt("Anonymous name")
+                    .default(config.anonymous_identity.name.clone())
+                    .interact_text()
+                    .unwrap_or_else(|_| config.anonymous_identity.name.clone())
+            });
+
+            let email = email.unwrap_or_else(|| {
+                Input::new()
+                    .with_prompt("Anonymous email")
+                    .default(config.anonymous_identity.email.clone())
+                    .interact_text()
+                    .unwrap_or_else(|_| config.anonymous_identity.email.clone())
+            });
+
+            validate_identity(&name, &email)?;
+
+            show_identity_changes(&config.anonymous_identity, &name, &email);
+
+            if is_interactive && !confirm_changes("Update anonymous identity?")? {
+                println!("Cancelled.");
+                return Ok(());
+            }
+
+            config.anonymous_identity.name = name;
+            config.anonymous_identity.email = email;
             config.save()?;
 
-            println!("{} Updated default identity", "✓".green());
+            println!("{} Updated anonymous identity", "✓".green());
         }
 
         ConfigAction::AddRemote {
@@ -174,7 +201,7 @@ fn handle_config(action: ConfigAction) -> Result<()> {
                 alias.clone(),
                 git_anon::config::RemoteConfig {
                     name: remote_name,
-                    identity: identity.unwrap_or_else(|| "default_identity".to_string()),
+                    identity: identity.unwrap_or_else(|| "anonymous_identity".to_string()),
                 },
             );
             config.save()?;
@@ -188,4 +215,35 @@ fn handle_config(action: ConfigAction) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_identity(name: &str, email: &str) -> Result<()> {
+    if name.trim().is_empty() {
+        anyhow::bail!("Name cannot be empty");
+    }
+    if email.trim().is_empty() {
+        anyhow::bail!("Email cannot be empty");
+    }
+    if !email.contains('@') {
+        anyhow::bail!("Email must contain @ symbol");
+    }
+    Ok(())
+}
+
+fn show_identity_changes(current: &git_anon::config::Identity, new_name: &str, new_email: &str) {
+    println!("Current anonymous identity:");
+    println!("  Name:  {}", current.name.yellow());
+    println!("  Email: {}", current.email.yellow());
+    println!();
+    println!("New anonymous identity:");
+    println!("  Name:  {}", new_name.green());
+    println!("  Email: {}", new_email.green());
+    println!();
+}
+
+fn confirm_changes(prompt: &str) -> Result<bool> {
+    Ok(Confirm::new()
+        .with_prompt(prompt)
+        .default(true)
+        .interact()?)
 }

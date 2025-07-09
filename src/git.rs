@@ -23,20 +23,20 @@ impl GitOps {
 
     pub fn has_uncommitted_changes(&self) -> Result<bool> {
         let mut opts = StatusOptions::new();
-        opts.include_untracked(false);
-        opts.include_ignored(false);
-        
+        opts.include_untracked(false).include_ignored(false);
+
         let statuses = self.repo.statuses(Some(&mut opts))?;
-        for status in statuses.iter() {
-            let flags = status.status();
-            if flags.intersects(Status::INDEX_MODIFIED | Status::INDEX_NEW | Status::INDEX_DELETED | 
-                               Status::INDEX_RENAMED | Status::INDEX_TYPECHANGE |
-                               Status::WT_MODIFIED | Status::WT_DELETED | Status::WT_RENAMED | 
-                               Status::WT_TYPECHANGE) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        let change_flags = Status::INDEX_MODIFIED
+            | Status::INDEX_NEW
+            | Status::INDEX_DELETED
+            | Status::INDEX_RENAMED
+            | Status::INDEX_TYPECHANGE
+            | Status::WT_MODIFIED
+            | Status::WT_DELETED
+            | Status::WT_RENAMED
+            | Status::WT_TYPECHANGE;
+
+        Ok(statuses.iter().any(|status| status.status().intersects(change_flags)))
     }
 
     pub fn create_backup_branch(&self, branch_name: &str) -> Result<()> {
@@ -61,22 +61,12 @@ impl GitOps {
             anyhow::bail!("No commits found in repository");
         }
 
-        let _first_commit = self.repo.find_commit(commits[0])?;
-        let tree = self
-            .repo
-            .find_commit(self.repo.head()?.target().unwrap())?
-            .tree()?;
-
+        let tree = self.repo.find_commit(self.repo.head()?.target().unwrap())?.tree()?;
         let signature = Signature::now(&identity.name, &identity.email)?;
-
-        let new_commit_oid = self
-            .repo
-            .commit(None, &signature, &signature, message, &tree, &[])?;
+        let new_commit_oid = self.repo.commit(None, &signature, &signature, message, &tree, &[])?;
 
         let mut branch_ref = self.repo.find_branch(branch, BranchType::Local)?;
-        branch_ref
-            .get_mut()
-            .set_target(new_commit_oid, "Squashed all commits")?;
+        branch_ref.get_mut().set_target(new_commit_oid, "Squashed all commits")?;
 
         Ok(())
     }
@@ -95,15 +85,7 @@ impl GitOps {
         );
         pb.set_message("Collecting commits to anonymize...");
 
-        let mut revwalk = self.repo.revwalk()?;
-        revwalk.push_head()?;
-
-        if let Some(since) = since_commit {
-            let oid = self.repo.revparse_single(since)?.id();
-            revwalk.hide(oid)?;
-        }
-
-        let commits: Vec<Oid> = revwalk.collect::<Result<Vec<_>, _>>()?;
+        let commits = self.collect_commits(since_commit)?;
         let total = commits.len() as u32;
 
         if total == 0 {
@@ -138,7 +120,6 @@ impl GitOps {
                 .collect();
 
             let parents_refs: Vec<&Commit> = new_parents.iter().collect();
-
             let new_oid = self.repo.commit(
                 None,
                 &signature,
@@ -153,9 +134,7 @@ impl GitOps {
 
         if let Some(&new_head) = new_commits.get(&commits[0]) {
             let mut branch_ref = self.repo.find_branch(branch, BranchType::Local)?;
-            branch_ref
-                .get_mut()
-                .set_target(new_head, "Anonymized commits")?;
+            branch_ref.get_mut().set_target(new_head, "Anonymized commits")?;
         }
 
         pb.finish_with_message(format!("Anonymized {} commits", total));
@@ -164,11 +143,12 @@ impl GitOps {
 
     pub fn push_to_remote(&self, remote_name: &str, branch: &str, force: bool) -> Result<()> {
         let mut remote = self.repo.find_remote(remote_name)?;
-        let refspec = if force {
-            format!("+refs/heads/{}:refs/heads/{}", branch, branch)
-        } else {
-            format!("refs/heads/{}:refs/heads/{}", branch, branch)
-        };
+        let refspec = format!(
+            "{}refs/heads/{}:refs/heads/{}",
+            if force { "+" } else { "" },
+            branch,
+            branch
+        );
 
         remote.push(&[&refspec], None)?;
         Ok(())
@@ -183,6 +163,10 @@ impl GitOps {
     }
 
     pub fn count_commits_to_anonymize(&self, since_commit: Option<&str>) -> Result<u32> {
+        Ok(self.collect_commits(since_commit)?.len() as u32)
+    }
+
+    fn collect_commits(&self, since_commit: Option<&str>) -> Result<Vec<Oid>> {
         let mut revwalk = self.repo.revwalk()?;
         revwalk.push_head()?;
 
@@ -191,7 +175,6 @@ impl GitOps {
             revwalk.hide(oid)?;
         }
 
-        let commits: Vec<Oid> = revwalk.collect::<Result<Vec<_>, _>>()?;
-        Ok(commits.len() as u32)
+        Ok(revwalk.collect::<Result<Vec<_>, _>>()?)
     }
 }

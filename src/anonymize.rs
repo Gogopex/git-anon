@@ -3,8 +3,8 @@ use chrono::Utc;
 use colored::Colorize;
 use dialoguer::Confirm;
 
-use crate::git::GitOps;
 use crate::GitAnon;
+use crate::git::GitOps;
 
 impl GitAnon {
     pub fn squash(&self, message: Option<String>, no_confirm: bool, dry_run: bool) -> Result<()> {
@@ -18,6 +18,7 @@ impl GitAnon {
         let message = message.unwrap_or_else(|| "Initial commit".to_string());
 
         if dry_run {
+            let backup_branch = format!("backup-{}-{}", branch, Utc::now().timestamp());
             println!("{}", "[DRY RUN] Squash operation preview:".blue().bold());
             println!("  Current branch: {}", branch.yellow());
             println!("  New commit message: {}", message.cyan());
@@ -25,9 +26,11 @@ impl GitAnon {
                 "  Anonymous identity: {} <{}>",
                 self.identity.name, self.identity.email
             );
-            let backup_branch = format!("backup-{}-{}", branch, Utc::now().timestamp());
             println!("  Backup branch name: {}", backup_branch.green());
-            println!("  {} All commits would be squashed into a single anonymous commit", "→".blue());
+            println!(
+                "  {} All commits would be squashed into a single anonymous commit",
+                "→".blue()
+            );
             println!("  {} A backup branch would be created", "→".blue());
             return Ok(());
         }
@@ -70,7 +73,13 @@ impl GitAnon {
         Ok(())
     }
 
-    pub fn push(&self, remote: &str, branch: Option<String>, force: bool, dry_run: bool) -> Result<()> {
+    pub fn push(
+        &self,
+        remote: &str,
+        branch: Option<String>,
+        force: bool,
+        dry_run: bool,
+    ) -> Result<()> {
         let git = GitOps::open(&self.repo_path)?;
         let current_branch = git.current_branch()?;
         let branch = branch.unwrap_or(current_branch);
@@ -83,7 +92,6 @@ impl GitAnon {
 
         let remote_oid = git.get_remote_tracking_branch(remote, &branch)?;
         let since_commit = remote_oid.map(|oid| oid.to_string());
-
         let count = git.count_commits_to_anonymize(since_commit.as_deref())?;
 
         if count == 0 {
@@ -95,13 +103,21 @@ impl GitAnon {
             println!("{}", "[DRY RUN] Push operation preview:".blue().bold());
             println!("  Target remote: {}", remote.yellow());
             println!("  Target branch: {}", branch.yellow());
-            println!("  Force push: {}", if force { "yes".red() } else { "no".green() });
+            println!(
+                "  Force push: {}",
+                if force { "yes".red() } else { "no".green() }
+            );
             println!(
                 "  Anonymous identity: {} <{}>",
                 self.identity.name, self.identity.email
             );
             println!("  {} {} commits would be anonymized", "→".blue(), count);
-            println!("  {} Commits would be pushed to {}/{}", "→".blue(), remote, branch);
+            println!(
+                "  {} Commits would be pushed to {}/{}",
+                "→".blue(),
+                remote,
+                branch
+            );
             return Ok(());
         }
 
@@ -137,7 +153,10 @@ impl GitAnon {
             println!("  {} All git history would be removed", "→".blue());
             println!("  {} Git submodules would be removed", "→".blue());
             println!("  {} Git reflog would be cleaned", "→".blue());
-            println!("  {} Aggressive garbage collection would be performed", "→".blue());
+            println!(
+                "  {} Aggressive garbage collection would be performed",
+                "→".blue()
+            );
             println!("  {} A backup branch would be created", "→".blue());
             println!("  {}", "WARNING: This would be IRREVERSIBLE!".red().bold());
             return Ok(());
@@ -177,17 +196,18 @@ impl GitAnon {
         git.squash_all_commits(&self.identity, "Initial commit", &branch)?;
 
         println!("Cleaning git history...");
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&self.repo_path)
-            .args(&["reflog", "expire", "--expire=now", "--all"])
-            .output()?;
-
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&self.repo_path)
-            .args(&["gc", "--prune=now", "--aggressive"])
-            .output()?;
+        let cleanup_commands = [
+            &["reflog", "expire", "--expire=now", "--all"] as &[&str],
+            &["gc", "--prune=now", "--aggressive"] as &[&str],
+        ];
+        
+        for cmd in cleanup_commands {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&self.repo_path)
+                .args(cmd)
+                .output()?;
+        }
 
         println!("{} Repository fully anonymized!", "✓".green());
         println!("Backup saved to branch: {}", backup_branch.yellow());

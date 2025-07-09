@@ -92,7 +92,9 @@ enum ConfigAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let repo_path = cli.repo.unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
+    let repo_path = cli
+        .repo
+        .unwrap_or_else(|| env::current_dir().expect("Failed to get current directory"));
 
     match cli.command {
         Commands::Config { action } => handle_config(action),

@@ -95,7 +95,7 @@ impl GitAnon {
         let count = git.count_commits_to_anonymize(since_commit.as_deref())?;
 
         if count == 0 {
-            println!("Already up to date with {}/{}", remote, branch);
+            println!("Already up to date with {remote}/{branch}");
             return Ok(());
         }
 
@@ -121,9 +121,10 @@ impl GitAnon {
             return Ok(());
         }
 
-        let anonymized_count = git.anonymize_commits(&self.identity, &branch, since_commit.as_deref())?;
+        let anonymized_count =
+            git.anonymize_commits(&self.identity, &branch, since_commit.as_deref())?;
 
-        println!("Pushing to {}...", remote);
+        println!("Pushing to {remote}...");
         git.push_to_remote(remote, &branch, force)?;
 
         println!(
@@ -200,7 +201,7 @@ impl GitAnon {
             &["reflog", "expire", "--expire=now", "--all"] as &[&str],
             &["gc", "--prune=now", "--aggressive"] as &[&str],
         ];
-        
+
         for cmd in cleanup_commands {
             std::process::Command::new("git")
                 .arg("-C")

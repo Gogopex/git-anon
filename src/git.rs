@@ -36,7 +36,9 @@ impl GitOps {
             | Status::WT_RENAMED
             | Status::WT_TYPECHANGE;
 
-        Ok(statuses.iter().any(|status| status.status().intersects(change_flags)))
+        Ok(statuses
+            .iter()
+            .any(|status| status.status().intersects(change_flags)))
     }
 
     pub fn create_backup_branch(&self, branch_name: &str) -> Result<()> {
@@ -61,12 +63,19 @@ impl GitOps {
             anyhow::bail!("No commits found in repository");
         }
 
-        let tree = self.repo.find_commit(self.repo.head()?.target().unwrap())?.tree()?;
+        let tree = self
+            .repo
+            .find_commit(self.repo.head()?.target().unwrap())?
+            .tree()?;
         let signature = Signature::now(&identity.name, &identity.email)?;
-        let new_commit_oid = self.repo.commit(None, &signature, &signature, message, &tree, &[])?;
+        let new_commit_oid = self
+            .repo
+            .commit(None, &signature, &signature, message, &tree, &[])?;
 
         let mut branch_ref = self.repo.find_branch(branch, BranchType::Local)?;
-        branch_ref.get_mut().set_target(new_commit_oid, "Squashed all commits")?;
+        branch_ref
+            .get_mut()
+            .set_target(new_commit_oid, "Squashed all commits")?;
 
         Ok(())
     }
@@ -134,10 +143,12 @@ impl GitOps {
 
         if let Some(&new_head) = new_commits.get(&commits[0]) {
             let mut branch_ref = self.repo.find_branch(branch, BranchType::Local)?;
-            branch_ref.get_mut().set_target(new_head, "Anonymized commits")?;
+            branch_ref
+                .get_mut()
+                .set_target(new_head, "Anonymized commits")?;
         }
 
-        pb.finish_with_message(format!("Anonymized {} commits", total));
+        pb.finish_with_message(format!("Anonymized {total} commits"));
         Ok(total)
     }
 
@@ -155,7 +166,7 @@ impl GitOps {
     }
 
     pub fn get_remote_tracking_branch(&self, remote: &str, branch: &str) -> Result<Option<Oid>> {
-        let refname = format!("refs/remotes/{}/{}", remote, branch);
+        let refname = format!("refs/remotes/{remote}/{branch}");
         match self.repo.find_reference(&refname) {
             Ok(reference) => Ok(reference.target()),
             Err(_) => Ok(None),
